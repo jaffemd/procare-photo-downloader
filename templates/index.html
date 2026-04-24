@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Procare Photo Downloader</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 40px auto; padding: 0 20px; color: #222; }
+    h1 { font-size: 1.4rem; margin-bottom: 20px; }
+    .instructions { background: #f5f5f5; border-left: 4px solid #999; padding: 14px 16px; border-radius: 4px; margin-bottom: 24px; line-height: 1.6; font-size: 0.9rem; }
+    .instructions code { background: #e8e8e8; padding: 1px 5px; border-radius: 3px; font-size: 0.85rem; }
+    .instructions ol { margin: 8px 0 0 18px; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: #444; }
+    input[type="text"], input[type="date"] {
+      width: 100%; padding: 8px 10px; font-size: 0.95rem;
+      border: 1px solid #ccc; border-radius: 4px; margin-bottom: 16px;
+    }
+    .row { display: flex; gap: 16px; }
+    .row > div { flex: 1; }
+    button {
+      background: #2563eb; color: #fff; border: none; padding: 10px 24px;
+      font-size: 0.95rem; border-radius: 4px; cursor: pointer;
+    }
+    button:disabled { background: #93c5fd; cursor: not-allowed; }
+    .error { color: #b91c1c; background: #fee2e2; border: 1px solid #fca5a5; padding: 10px 14px; border-radius: 4px; margin-top: 16px; font-size: 0.9rem; }
+    .success { color: #166534; background: #dcfce7; border: 1px solid #86efac; padding: 10px 14px; border-radius: 4px; margin-top: 16px; font-size: 0.9rem; }
+    .photo-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+    .photo-grid img { width: 180px; height: 180px; object-fit: cover; border-radius: 4px; border: 1px solid #ddd; }
+  </style>
+</head>
+<body>
+  <h1>Procare Photo Downloader</h1>
+
+  <div class="instructions">
+    <strong>How to get your bearer token:</strong>
+    <ol>
+      <li>Go to <a href="https://schools.procareconnect.com/dashboard" target="_blank">schools.procareconnect.com/dashboard</a> and log in.</li>
+      <li>Open DevTools (<code>F12</code> or <code>Cmd+Option+I</code>) and click the <strong>Network</strong> tab.</li>
+      <li>Reload the page, then filter by <code>daily_activities</code> in the request list.</li>
+      <li>Click that request → <strong>Headers</strong> → find <code>Authorization</code> and copy the full value (starts with <code>Bearer online_auth_...</code>).</li>
+    </ol>
+  </div>
+
+  <label for="token">Bearer Token</label>
+  <input type="text" id="token" placeholder="Bearer online_auth_..." />
+
+  <div class="row">
+    <div>
+      <label for="start-date">Start Date</label>
+      <input type="date" id="start-date" />
+    </div>
+    <div>
+      <label for="end-date">End Date</label>
+      <input type="date" id="end-date" />
+    </div>
+  </div>
+
+  <button id="fetch-btn">Download Photos</button>
+
+  <div id="status"></div>
+  <div id="photo-grid" class="photo-grid"></div>
+
+  <script>
+    const tokenInput = document.getElementById("token");
+    const startInput = document.getElementById("start-date");
+    const endInput = document.getElementById("end-date");
+    const fetchBtn = document.getElementById("fetch-btn");
+    const statusEl = document.getElementById("status");
+    const gridEl = document.getElementById("photo-grid");
+
+    function today() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    }
+
+    // Init
+    tokenInput.value = localStorage.getItem("procare_token") || "";
+    startInput.value = today();
+    endInput.value = today();
+
+    tokenInput.addEventListener("input", () => {
+      localStorage.setItem("procare_token", tokenInput.value.trim());
+    });
+
+    fetchBtn.addEventListener("click", async () => {
+      const token = tokenInput.value.trim();
+      const start = startInput.value;
+      const end = endInput.value;
+
+      statusEl.innerHTML = "";
+      gridEl.innerHTML = "";
+
+      if (!token) {
+        statusEl.innerHTML = '<div class="error">Please enter your bearer token.</div>';
+        return;
+      }
+      if (start > end) {
+        statusEl.innerHTML = '<div class="error">Start date must be before or equal to end date.</div>';
+        return;
+      }
+
+      fetchBtn.disabled = true;
+      fetchBtn.textContent = "Downloading…";
+
+      try {
+        const resp = await fetch("/api/fetch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token, start_date: start, end_date: end }),
+        });
+
+        const data = await resp.json();
+
+        if (!resp.ok) {
+          statusEl.innerHTML = `<div class="error">${data.error || "An error occurred."}</div>`;
+          return;
+        }
+
+        const { folder, files } = data;
+        statusEl.innerHTML = `<div class="success">Downloaded ${files.length} photo${files.length !== 1 ? "s" : ""} → <code>photos/${folder}/</code></div>`;
+
+        for (const file of files) {
+          const img = document.createElement("img");
+          img.src = `/photos/${folder}/${file}`;
+          img.alt = file;
+          gridEl.appendChild(img);
+        }
+      } catch (err) {
+        statusEl.innerHTML = `<div class="error">Request failed: ${err.message}</div>`;
+      } finally {
+        fetchBtn.disabled = false;
+        fetchBtn.textContent = "Download Photos";
+      }
+    });
+  </script>
+</body>
+</html>
